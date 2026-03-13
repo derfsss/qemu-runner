@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.log
+*.pid
+
+# Built AmigaOS binaries (build from source)
+amiga/serialshell
+amiga/hello
