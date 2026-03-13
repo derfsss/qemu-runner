@@ -190,6 +190,23 @@ py dev_cycle.py stop
 
 The `start` command launches `qemu_manager.py` as a detached background process that automatically restarts QEMU if it crashes. The `stop` command kills the manager first (preventing auto-restart), then sends QMP quit to QEMU.
 
+#### Idle Timeout
+
+By default, QEMU automatically shuts down after **300 seconds (5 minutes)** with no SerialShell activity, saving CPU cycles when the guest isn't being used. Activity is tracked by a timestamp file (`.last_activity`) that gets updated every time `serial_client.py` connects to the guest.
+
+```bash
+# Start with default 5-minute idle timeout
+py dev_cycle.py start --wait
+
+# Start with a 30-minute idle timeout
+py dev_cycle.py start --wait --idle-timeout 1800
+
+# Start with idle timeout disabled (QEMU runs forever)
+py dev_cycle.py start --wait --idle-timeout 0
+```
+
+When the timeout triggers, the manager logs a warning and gracefully stops QEMU. If no SerialShell connection is made after QEMU starts, the timeout is measured from QEMU's start time.
+
 ### Build, Deploy, and Run
 
 The `build-run` command performs the full cycle: cross-compile via Docker, upload the binary to the guest, execute it, and capture the output.
@@ -345,3 +362,4 @@ Results: N/M passed
 | **Auto-restart won't stop** | Run `py dev_cycle.py stop` — this kills the manager before quitting QEMU. |
 | **Python can't find QEMU** | Use native Windows Python (`py` launcher), not MSYS2 Python. MSYS2 can't resolve Windows paths in subprocess. |
 | **`Permission denied` on QEMU temp files** | Ensure `qemu_manager.py` sets `cwd` to the QEMU install directory. |
+| **QEMU shuts down unexpectedly** | The idle timeout (default 5 min) may have triggered. Use `--idle-timeout 0` to disable, or increase the value. Check `qemu_manager.log` for "Idle for N seconds". |

@@ -17,6 +17,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import logging
 from pathlib import Path
@@ -40,6 +41,11 @@ def _win_to_posix(path: str) -> str:
 RESTART_DELAY_SECS = 3
 MAX_RAPID_CRASHES = 5          # if it crashes this many times within RAPID_WINDOW, stop
 RAPID_WINDOW_SECS = 60
+DEFAULT_IDLE_TIMEOUT = 300     # 5 minutes; 0 = disabled
+
+# Activity file written by serial_client.py on each connection
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ACTIVITY_FILE = os.path.join(SCRIPT_DIR, ".last_activity")
 
 
 def load_config(config_path: str) -> dict:
@@ -102,12 +108,42 @@ def _split_arg_string(s: str) -> list[str]:
 
 
 class QemuManager:
-    def __init__(self, config_path: str, qemu_path: str):
+    def __init__(self, config_path: str, qemu_path: str,
+                 idle_timeout: int = DEFAULT_IDLE_TIMEOUT):
         self.config_path = config_path
         self.qemu_path = qemu_path
+        self.idle_timeout = idle_timeout
         self.process: subprocess.Popen | None = None
         self.should_run = True
         self.crash_times: list[float] = []
+
+    def _get_last_activity(self) -> float:
+        """Read the last activity timestamp from the touch file."""
+        try:
+            with open(ACTIVITY_FILE, "r") as f:
+                return float(f.read().strip())
+        except (OSError, ValueError):
+            return 0.0
+
+    def _idle_watchdog(self):
+        """Background thread: stop QEMU if idle too long."""
+        start_time = time.time()
+        while self.should_run:
+            time.sleep(60)  # check every minute
+            if not self.should_run:
+                break
+            last = self._get_last_activity()
+            # If no activity file exists, measure from QEMU start
+            if last == 0.0:
+                last = start_time
+            idle_secs = time.time() - last
+            if idle_secs >= self.idle_timeout:
+                log.warning(
+                    "Idle for %d seconds (timeout %d) — shutting down.",
+                    int(idle_secs), self.idle_timeout
+                )
+                self.stop()
+                break
 
     def start(self):
         """Main loop: launch QEMU, restart on crash."""
@@ -120,6 +156,14 @@ class QemuManager:
         # Install signal handlers for clean shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+        # Start idle watchdog if enabled
+        if self.idle_timeout > 0:
+            log.info("Idle timeout: %d seconds", self.idle_timeout)
+            watchdog = threading.Thread(target=self._idle_watchdog, daemon=True)
+            watchdog.start()
+        else:
+            log.info("Idle timeout: disabled")
 
         while self.should_run:
             log.info("Starting QEMU...")
@@ -200,13 +244,18 @@ def main():
         "--qemu-path", default=DEFAULT_QEMU_PATH,
         help=f"Path to qemu-system-ppc binary (default: {DEFAULT_QEMU_PATH})"
     )
+    parser.add_argument(
+        "--idle-timeout", type=int, default=DEFAULT_IDLE_TIMEOUT,
+        help=f"Shut down QEMU after N seconds with no SerialShell activity "
+             f"(0 = disabled, default: {DEFAULT_IDLE_TIMEOUT})"
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.config):
         log.error("Config file not found: %s", args.config)
         sys.exit(1)
 
-    manager = QemuManager(args.config, args.qemu_path)
+    manager = QemuManager(args.config, args.qemu_path, args.idle_timeout)
     manager.start()
 
 

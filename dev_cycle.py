@@ -142,7 +142,8 @@ def is_qemu_running(host: str, qmp_port: int) -> bool:
 
 def start_qemu(config: str, qemu_path: str, host: str, serial_port: int,
                qmp_port: int, wait: bool = False,
-               wait_timeout: float = 120.0) -> bool:
+               wait_timeout: float = 120.0,
+               idle_timeout: int = 300) -> bool:
     """Start QEMU with auto-restart manager in the background."""
     # Check if already running
     existing_pid = _read_pidfile()
@@ -163,6 +164,10 @@ def start_qemu(config: str, qemu_path: str, host: str, serial_port: int,
 
     print(f"\n=== START QEMU ===")
     print(f"Config: {config}")
+    if idle_timeout > 0:
+        print(f"Idle timeout: {idle_timeout}s")
+    else:
+        print("Idle timeout: disabled")
 
     # Launch qemu_manager.py as a detached background process
     manager_script = os.path.join(SCRIPT_DIR, "qemu_manager.py")
@@ -183,7 +188,9 @@ def start_qemu(config: str, qemu_path: str, host: str, serial_port: int,
             popen_kwargs["start_new_session"] = True
 
         proc = subprocess.Popen(
-            [sys.executable, manager_script, config, "--qemu-path", qemu_path],
+            [sys.executable, manager_script, config,
+             "--qemu-path", qemu_path,
+             "--idle-timeout", str(idle_timeout)],
             **popen_kwargs,
         )
 
@@ -499,6 +506,8 @@ def main():
     p_start.add_argument("--wait", action="store_true",
                           help="Wait for SerialShell to be ready")
     p_start.add_argument("--wait-timeout", type=float, default=120)
+    p_start.add_argument("--idle-timeout", type=int, default=300,
+                          help="Shut down QEMU after N seconds idle (0=disabled, default: 300)")
 
     # stop: shut down QEMU and auto-restart manager
     sub.add_parser("stop", help="Stop QEMU and auto-restart manager")
@@ -534,7 +543,8 @@ def main():
             sys.exit(1)
         ok = start_qemu(args.config, args.qemu_path,
                          args.host, args.serial_port, args.qmp_port,
-                         wait=args.wait, wait_timeout=args.wait_timeout)
+                         wait=args.wait, wait_timeout=args.wait_timeout,
+                         idle_timeout=args.idle_timeout)
         sys.exit(0 if ok else 1)
 
     elif args.action == "stop":

@@ -33,6 +33,10 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 4321
 DEFAULT_TIMEOUT = 30
 RECV_CHUNK = 4096
+
+# Touch file used by qemu_manager idle timeout — updated on each connection
+_ACTIVITY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              ".last_activity")
 READY_MARKER = "SERIALSHELL_READY\n"
 DONE_MARKER = "___SERIALSHELL_DONE___\n"
 QUIT_CMD = "SERIALSHELL_QUIT\n"
@@ -41,6 +45,15 @@ DOWNLOAD_CMD = "SERIALSHELL_DOWNLOAD"
 UPLOAD_OK = "SERIALSHELL_UPLOAD_OK"
 UPLOAD_FAIL = "SERIALSHELL_UPLOAD_FAIL"
 FILE_HEADER = "SERIALSHELL_FILE"
+
+
+def _touch_activity():
+    """Update the activity timestamp file for idle timeout tracking."""
+    try:
+        with open(_ACTIVITY_FILE, "w") as f:
+            f.write(str(time.time()))
+    except OSError:
+        pass
 
 
 class SerialClient:
@@ -93,6 +106,7 @@ class SerialClient:
                     raise ConnectionError("Server closed connection during handshake")
                 self._buf += data.decode("latin-1", errors="replace")
                 if READY_MARKER in self._buf:
+                    _touch_activity()
                     # Discard everything up to and including the READY marker
                     idx = self._buf.index(READY_MARKER) + len(READY_MARKER)
                     self._buf = self._buf[idx:]

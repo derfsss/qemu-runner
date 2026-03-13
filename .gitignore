@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.log
 *.pid
+.last_activity
 
 # Built AmigaOS binaries (build from source)
 amiga/serialshell
