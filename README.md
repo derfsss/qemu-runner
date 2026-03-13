@@ -207,6 +207,8 @@ py dev_cycle.py start --wait --idle-timeout 0
 
 When the timeout triggers, the manager logs a warning and gracefully stops QEMU. If no SerialShell connection is made after QEMU starts, the timeout is measured from QEMU's start time.
 
+The watchdog checks every 60 seconds, so the actual shutdown happens between N and N+60 seconds after the last activity.
+
 ### Build, Deploy, and Run
 
 The `build-run` command performs the full cycle: cross-compile via Docker, upload the binary to the guest, execute it, and capture the output.
