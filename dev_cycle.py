@@ -21,6 +21,8 @@ Remote mode (real hardware):
 import argparse
 import io
 import os
+import platform
+import signal
 import subprocess
 import sys
 import time
@@ -33,15 +35,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from serial_client import SerialClient
 from qmp_client import QMPClient
 
+IS_WINDOWS = platform.system() == "Windows"
+
 REPO_ROOT = r"W:\Code\amiga\antigravity"
 
-DOCKER_CMD = (
-    'wsl sh -c "docker run --rm '
-    '-v /mnt/w/Code/amiga/antigravity:/src '
-    '-w /src/{project_dir} '
-    'walkero/amigagccondocker:os4-gcc11 '
-    '{make_cmd}"'
-)
+if IS_WINDOWS:
+    # On Windows, Docker runs inside WSL
+    DOCKER_CMD = (
+        'wsl sh -c "docker run --rm '
+        '-v /mnt/w/Code/amiga/antigravity:/src '
+        '-w /src/{project_dir} '
+        'walkero/amigagccondocker:os4-gcc11 '
+        '{make_cmd}"'
+    )
+else:
+    # On Linux/macOS, Docker runs natively
+    DOCKER_CMD = (
+        'docker run --rm '
+        '-v ' + REPO_ROOT + ':/src '
+        '-w /src/{project_dir} '
+        'walkero/amigagccondocker:os4-gcc11 '
+        '{make_cmd}'
+    )
 
 DEFAULT_HOST = "localhost"
 DEFAULT_SERIAL_PORT = 4321
@@ -55,26 +70,39 @@ MANAGER_PIDFILE = os.path.join(SCRIPT_DIR, ".qemu_manager.pid")
 
 
 def _is_process_alive(pid: int) -> bool:
-    """Check if a process with the given PID is running (Windows-compatible)."""
-    try:
-        r = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return str(pid) in r.stdout
-    except Exception:
-        return False
+    """Check if a process with the given PID is running."""
+    if IS_WINDOWS:
+        try:
+            r = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return str(pid) in r.stdout
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
 
 
 def _kill_process(pid: int):
-    """Kill a process by PID (Windows-compatible)."""
-    try:
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/F"],
-            capture_output=True, timeout=10,
-        )
-    except Exception:
-        pass
+    """Kill a process by PID."""
+    if IS_WINDOWS:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F"],
+                capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def _read_pidfile() -> int | None:
@@ -141,13 +169,22 @@ def start_qemu(config: str, qemu_path: str, host: str, serial_port: int,
     log_file = os.path.join(SCRIPT_DIR, "qemu_manager.log")
 
     with open(log_file, "a") as lf:
-        proc = subprocess.Popen(
-            [sys.executable, manager_script, config, "--qemu-path", qemu_path],
+        popen_kwargs = dict(
             stdout=lf,
             stderr=lf,
             stdin=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                          | subprocess.DETACHED_PROCESS,
+        )
+        if IS_WINDOWS:
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(
+            [sys.executable, manager_script, config, "--qemu-path", qemu_path],
+            **popen_kwargs,
         )
 
     _write_pidfile(proc.pid)
