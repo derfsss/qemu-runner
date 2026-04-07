@@ -44,8 +44,10 @@
 #define QUIT_CMD      "SERIALSHELL_QUIT"
 #define UPLOAD_CMD    "SERIALSHELL_UPLOAD "
 #define DOWNLOAD_CMD  "SERIALSHELL_DOWNLOAD "
+#define RUNCONSOLE_CMD "SERIALSHELL_RUNCONSOLE "
 #define DONE_MARKER   "___SERIALSHELL_DONE___\n"
 #define TEMP_OUTPUT   "T:serialshell_out.txt"
+#define CONSOLE_OUTPUT "RAM:serialshell_console.txt"
 
 /* Send a string over a socket */
 static void send_str(LONG sock, const char *str)
@@ -301,23 +303,86 @@ static void handle_client(LONG client_sock)
             continue;
         }
 
+        /* Check for runconsole command:
+         *   SERIALSHELL_RUNCONSOLE <command>
+         * Runs a command in its own console window with output captured
+         * to a file.  For programs that use clib4's -athread=native
+         * (like GDB) which spawn persistent child processes that block
+         * synchronous SystemTags. */
+        if (strncmp(cmdbuf, RUNCONSOLE_CMD, strlen(RUNCONSOLE_CMD)) == 0) {
+            const char *cmd = cmdbuf + strlen(RUNCONSOLE_CMD);
+
+            IDOS->Printf("SerialShell: RunConsole: %s\n", cmd);
+
+            IDOS->Delete(CONSOLE_OUTPUT);
+
+            /* Build a script that runs the command with output redirected.
+               The script runs inside a real shell (via Execute) which
+               handles the >file redirect at the shell level. */
+            BPTR scriptfh = IDOS->Open("T:serialshell_runcmd.sh", MODE_NEWFILE);
+            if (scriptfh) {
+                IDOS->FPrintf(scriptfh, "%s >%s\n", cmd, CONSOLE_OUTPUT);
+                IDOS->Close(scriptfh);
+
+                /* Run the script in its own console via SystemTags async.
+                   The console provides real I/O for clib4 programs. */
+                BPTR infh = IDOS->Open("NIL:", MODE_OLDFILE);
+                BPTR outfh = IDOS->Open("NIL:", MODE_NEWFILE);
+                IDOS->SystemTags(
+                    "Execute T:serialshell_runcmd.sh",
+                    SYS_Input,   infh,
+                    SYS_Output,  outfh,
+                    SYS_Asynch,  TRUE,
+                    TAG_END);
+
+                /* Poll until output file exists and stabilizes */
+                int32 prev_size = -1;
+                int stable_count = 0;
+                for (int i = 0; i < 120; i++) {  /* max 60s */
+                    IDOS->Delay(25);  /* 500ms */
+                    struct ExamineData *exd = IDOS->ExamineObjectTags(
+                        EX_StringNameInput, CONSOLE_OUTPUT, TAG_END);
+                    if (exd) {
+                        int32 cur_size = (int32)exd->FileSize;
+                        IDOS->FreeDosObject(DOS_EXAMINEDATA, exd);
+                        if (cur_size == prev_size && cur_size > 0) {
+                            stable_count++;
+                            if (stable_count >= 4)  /* stable for 2s */
+                                break;
+                        } else {
+                            stable_count = 0;
+                        }
+                        prev_size = cur_size;
+                    }
+                }
+            }
+
+            send_file(client_sock, CONSOLE_OUTPUT);
+            send_str(client_sock, DONE_MARKER);
+            continue;
+        }
+
         IDOS->Printf("SerialShell: Executing: %s\n", cmdbuf);
 
         /* Build a redirected command:
          *   cmd >T:serialshell_out.txt
-         * Then read the output file and send it back */
+         * Then read the output file and send it back.
+         * NOTE: This uses synchronous SystemTags which blocks until
+         * the command AND all its children exit.  For programs that
+         * spawn persistent children (clib4 -athread=native), use
+         * SERIALSHELL_RUNCONSOLE instead. */
         snprintf(execbuf, sizeof(execbuf),
                  "%s >%s", cmdbuf, TEMP_OUTPUT);
 
         /* Delete any stale output file */
         IDOS->Delete(TEMP_OUTPUT);
 
-        /* Execute the command */
+        /* Execute the command synchronously.
+         * Per dos.doc: passing ZERO for SYS_Input and SYS_Output
+         * causes the function to use "NIL:" internally (V53.65+). */
         IDOS->SystemTags(execbuf,
-            SYS_Input,      0,
-            SYS_Output,     0,
-            NP_CloseInput,  FALSE,
-            NP_CloseOutput, FALSE,
+            SYS_Input,      ZERO,
+            SYS_Output,     ZERO,
             TAG_END);
 
         /* Send output back over TCP */
