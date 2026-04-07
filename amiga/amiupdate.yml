@@ -1,0 +1,18 @@
+app_name: SerialShell
+description: "TCP command listener for AmigaOS 4 remote development"
+default_path: "C:"
+use_appdir: true
+
+files:
+  critical:
+    - source: SerialShell
+      dest_name: SerialShell
+
+  extra:
+    - source: SerialShell.readme
+      dest_name: SerialShell.readme
+
+post_install_message: |
+  SerialShell has been installed.
+  Add to S:User-Startup:
+    Run <>CON:0/0/640/200/SerialShell/AUTO/CLOSE C:SerialShell

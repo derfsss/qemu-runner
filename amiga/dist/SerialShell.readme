@@ -1,0 +1,285 @@
+name: SerialShell
+description: TCP command listener for remote AmigaOS development
+version: 1.0
+author: Richard Gibbs
+submitter: Richard Gibbs
+url: https://github.com/derfsss/qemu-runner
+category: development/utility
+requirements: AmigaOS 4.1, bsdsocket.library, TCP/IP stack (Roadshow)
+license: BSD
+minosversion: 4.1
+distribute: yes
+hend:
+
+SerialShell
+===========
+TCP Command Listener for Remote AmigaOS 4 Development
+Version 1.0 - 7 April 2026
+
+Author:  Richard Gibbs
+Source:  https://github.com/derfsss/qemu-runner
+
+
+INTRODUCTION
+------------
+
+SerialShell is a lightweight TCP server that runs on AmigaOS 4 and
+enables remote command execution, file transfer, and program output
+capture from a host machine.  It is designed for developers who use
+QEMU or real Amiga hardware and want to automate build-deploy-test
+workflows from their development PC.
+
+Key features:
+  - Execute AmigaOS shell commands remotely and capture output
+  - Upload and download files over TCP (binary safe)
+  - Run clib4/-athread=native programs with output capture
+  - Minimal footprint (~70 KB), no external dependencies
+  - Auto-starts at boot via S:User-Startup
+
+
+REQUIREMENTS
+------------
+
+  - AmigaOS 4.1 Final Edition or later
+  - bsdsocket.library (included with Roadshow TCP/IP stack)
+  - Active network connection (Ethernet or WiFi)
+
+For QEMU:
+  - QEMU with PPC/AmigaOS support (pegasos2, sam460ex, etc.)
+  - Network port forwarding configured (see QEMU SETUP below)
+
+
+INSTALLATION
+------------
+
+Manual installation:
+
+  1. Copy the SerialShell binary to SYS:C/:
+       Copy SerialShell SYS:C/SerialShell
+
+  2. Add to S:User-Startup for automatic start at boot:
+       Run <>CON:0/0/640/200/SerialShell/AUTO/CLOSE C:SerialShell
+
+  3. Or start manually from a shell:
+       Run <>CON:0/0/640/200/SerialShell/AUTO/CLOSE C:SerialShell
+
+  4. Verify installation:
+       Version C:SerialShell
+
+The AUTO flag means the console window only opens when SerialShell
+produces output.  CLOSE adds a close gadget to the window.
+
+AmiUpdate:
+  If installed via AmiUpdate, the AutoInstall script handles
+  copying the binary to SYS:C/ automatically.
+
+
+QEMU SETUP
+-----------
+
+SerialShell listens on TCP port 4321.  To access it from the host,
+configure QEMU to forward this port.
+
+Add to your QEMU network configuration:
+
+  -netdev user,id=net0,hostfwd=tcp::4321-:4321
+  -device rtl8139,netdev=net0
+
+Example full QEMU command:
+
+  qemu-system-ppc -M pegasos2 -m 2048M \
+    -kernel bboot -initrd kickstart.zip \
+    -netdev user,id=net0,hostfwd=tcp::4321-:4321 \
+    -device rtl8139,netdev=net0 \
+    -serial stdio
+
+This works with all supported QEMU machine types:
+  - pegasos2 (Pegasos II, MPC7447 G4)
+  - sam460ex (Sam460ex, PPC460EX)
+
+After AmigaOS boots and SerialShell starts, connect from the host
+to localhost:4321.
+
+
+REAL HARDWARE SETUP
+-------------------
+
+On real Amiga hardware with a network connection:
+
+  1. Ensure Roadshow TCP/IP stack is running and configured
+  2. Install SerialShell as described above
+  3. Find your Amiga's IP address:
+       ifconfig
+     or check Prefs/Internet
+
+  4. Connect from your development PC to <amiga-ip>:4321
+
+  5. If you have a firewall on the Amiga, ensure port 4321 is open
+
+  6. For reliable connections, use a static IP or DHCP reservation
+
+
+USING FROM WINDOWS
+------------------
+
+Python example (works with Python 3.6+):
+
+  import socket
+
+  HOST = 'localhost'    # For QEMU
+  # HOST = '192.168.1.50'  # For real hardware
+  PORT = 4321
+
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.settimeout(10)
+  s.connect((HOST, PORT))
+
+  # Read READY message
+  ready = s.recv(1024)
+  print(ready.decode())    # "SERIALSHELL_READY"
+
+  # Send a command
+  s.sendall(b'Echo Hello from Windows!\n')
+
+  # Read response until DONE marker
+  response = b''
+  while b'___SERIALSHELL_DONE___' not in response:
+      response += s.recv(4096)
+  print(response.decode())
+
+  # Disconnect
+  s.sendall(b'SERIALSHELL_QUIT\n')
+  s.close()
+
+PowerShell alternative (no Python required):
+
+  $client = New-Object System.Net.Sockets.TcpClient("localhost", 4321)
+  $stream = $client.GetStream()
+  $reader = New-Object System.IO.StreamReader($stream)
+  $writer = New-Object System.IO.StreamWriter($stream)
+  $writer.AutoFlush = $true
+
+  # Read READY
+  $reader.ReadLine()
+
+  # Send command
+  $writer.WriteLine("Version")
+
+  # Read until done marker
+  do { $line = $reader.ReadLine(); Write-Host $line }
+  while ($line -ne "___SERIALSHELL_DONE___")
+
+  $writer.WriteLine("SERIALSHELL_QUIT")
+  $client.Close()
+
+
+USING FROM WSL (Windows Subsystem for Linux)
+---------------------------------------------
+
+IMPORTANT: Under WSL2, "localhost" does NOT reach the Windows host
+where QEMU runs.  You must use the Windows host gateway IP instead.
+
+Find the gateway IP:
+
+  ip route show default | awk '{print $3}'
+
+Typically this is 172.x.x.1 (e.g. 172.29.112.1).
+
+Python example for WSL2:
+
+  import socket
+
+  # Use the Windows gateway IP, NOT localhost
+  HOST = '172.29.112.1'
+  PORT = 4321
+
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.settimeout(10)
+  s.connect((HOST, PORT))
+  ready = s.recv(1024)
+
+  # Send command
+  s.sendall(b'Version\n')
+  response = b''
+  while b'___SERIALSHELL_DONE___' not in response:
+      response += s.recv(4096)
+  print(response.decode())
+
+  s.sendall(b'SERIALSHELL_QUIT\n')
+  s.close()
+
+
+PROTOCOL REFERENCE
+------------------
+
+SerialShell listens on TCP port 4321 and handles one client at a
+time.  The protocol is text-based with binary extensions.
+
+Connection:
+  On connect, server sends: SERIALSHELL_READY\n
+  Client sends commands as lines terminated by \n.
+  Server sends response followed by: ___SERIALSHELL_DONE___\n
+
+Commands:
+
+  <command>\n
+    Execute an AmigaOS shell command.  Output is captured to a temp
+    file and sent back over TCP, followed by the DONE marker.
+    Example: Echo Hello\n
+
+  SERIALSHELL_RUNCONSOLE <command>\n
+    Execute a command asynchronously in its own console.  Designed
+    for programs that use clib4's -athread=native (like GDB) which
+    spawn persistent child processes that block synchronous execution.
+    Output is captured via a script with shell-level redirection and
+    polled until stable.
+    Example: SERIALSHELL_RUNCONSOLE C:gdb -batch -q -ex "show version"\n
+
+  SERIALSHELL_UPLOAD <path> <size>\n
+    Upload a file to the Amiga.  After sending this line, the client
+    sends exactly <size> raw bytes.  The server writes them to <path>
+    and responds with:
+      SERIALSHELL_UPLOAD_OK\n      (success)
+      SERIALSHELL_UPLOAD_FAIL <msg>\n  (failure)
+    Example: SERIALSHELL_UPLOAD T:test.txt 1024\n<1024 bytes>
+
+  SERIALSHELL_DOWNLOAD <path>\n
+    Download a file from the Amiga.  Server responds with:
+      SERIALSHELL_FILE <size>\n
+    followed by <size> raw bytes, then:
+      ___SERIALSHELL_DONE___\n
+    If the file doesn't exist, size is 0.
+    Example: SERIALSHELL_DOWNLOAD SYS:C/Version\n
+
+  SERIALSHELL_QUIT\n
+    Clean disconnect.  Server responds with:
+      SERIALSHELL_SHUTDOWN\n
+    and closes the connection.
+
+
+BUILDING FROM SOURCE
+--------------------
+
+Source code: https://github.com/derfsss/qemu-runner
+
+Build using Docker cross-compiler:
+
+  docker run --rm \
+    -v $(pwd)/amiga:/work \
+    clib4-dev:os4-gcc11 \
+    sh -c 'cd /work && make serialshell'
+
+Or with any ppc-amigaos cross-compiler:
+
+  ppc-amigaos-gcc -O2 -Wall -o serialshell serialshell.c -lauto
+
+
+CHANGELOG
+---------
+
+Version 1.0 (7 April 2026)
+  - Initial release
+  - Command execution with output capture
+  - Binary file upload and download
+  - SERIALSHELL_RUNCONSOLE for clib4/-athread=native programs
+  - AmiUpdate support

@@ -35,6 +35,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "amiupdate.h"
+
+/* AmigaOS version string — visible via the 'Version' command */
+#define SERIALSHELL_VERSION "1.0"
+#define SERIALSHELL_DATE    "07.04.2026"
+static const char __attribute__((used)) verstag[] =
+    "\0$VER: SerialShell " SERIALSHELL_VERSION " (" SERIALSHELL_DATE ")";
+
 #define LISTEN_PORT   4321
 #define CMD_BUFSIZE   4096
 #define RECV_BUFSIZE  4096
@@ -402,7 +410,11 @@ int main(int argc, char **argv)
     struct sockaddr_in addr;
     int optval = 1;
 
-    IDOS->Printf("SerialShell: Starting TCP listener on port %ld\n",
+    SetAmiUpdateENVVariable("SerialShell");
+
+    IDOS->Printf("SerialShell " SERIALSHELL_VERSION
+                 " (" SERIALSHELL_DATE ")"
+                 ": Starting TCP listener on port %ld\n",
                  (long)LISTEN_PORT);
 
     /* Create listening socket */
