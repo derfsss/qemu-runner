@@ -2,26 +2,41 @@ CC = ppc-amigaos-gcc
 CFLAGS = -O2 -Wall
 LDFLAGS = -lauto
 
-# AmiUpdate integration
-AMIUPDATE_DIR = ../../../../AmiUpdateIntegration
+# AmiUpdate integration — only pulled in when WITH_AMIUPDATE=1.
+# The `serialshell-full` target sets this via recursive make.
+AMIUPDATE_DIR ?= ../../../../AmiUpdateIntegration
+WITH_AMIUPDATE ?= 0
+
+ifeq ($(WITH_AMIUPDATE),1)
 include $(AMIUPDATE_DIR)/amiupdate.mk
+SERIALSHELL_EXTRA_OBJS   = $(AMIUPDATE_OBJ)
+SERIALSHELL_EXTRA_CFLAGS = $(AMIUPDATE_CFLAGS) -DSERIALSHELL_AMIUPDATE
+endif
 
 # Distribution
 DIST_DIR = dist
 DIST_NAME = SerialShell
 VERSION = 1.0
 
-TARGETS = serialshell hello
+.PHONY: all serialshell-full clean dist dist-lha
 
-all: $(TARGETS)
+# Default target: standalone serialshell (no AmiUpdate dependency) + hello.
+all: serialshell hello
 
-serialshell: serialshell.c $(AMIUPDATE_OBJ)
-	$(CC) $(CFLAGS) $(AMIUPDATE_CFLAGS) -o $@ $^ $(LDFLAGS)
+serialshell: serialshell.c $(SERIALSHELL_EXTRA_OBJS)
+	$(CC) $(CFLAGS) $(SERIALSHELL_EXTRA_CFLAGS) -o $@ $^ $(LDFLAGS)
+
+# Build serialshell with AmiUpdate integration (requires AmiUpdateIntegration
+# checkout at $(AMIUPDATE_DIR)). Re-invokes make with WITH_AMIUPDATE=1 so the
+# conditional include above kicks in.
+serialshell-full:
+	$(MAKE) WITH_AMIUPDATE=1 serialshell
 
 hello: hello.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
 
-dist: serialshell
+# Distribution requires the AmiUpdate-integrated build.
+dist: serialshell-full
 	rm -rf $(DIST_DIR)/$(DIST_NAME)
 	mkdir -p $(DIST_DIR)/$(DIST_NAME)
 	cp serialshell $(DIST_DIR)/$(DIST_NAME)/SerialShell
@@ -34,7 +49,5 @@ dist-lha: dist
 	@ls -la $(DIST_DIR)/$(DIST_NAME)_v$(VERSION).lha
 
 clean:
-	rm -f $(TARGETS) $(AMIUPDATE_OBJ)
+	rm -f serialshell hello $(AMIUPDATE_OBJ)
 	rm -rf $(DIST_DIR)/$(DIST_NAME) $(DIST_DIR)/*.lha $(DIST_DIR)/readme.txt
-
-.PHONY: all clean dist dist-lha

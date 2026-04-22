@@ -35,7 +35,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef SERIALSHELL_AMIUPDATE
 #include "amiupdate.h"
+#endif
 
 /* AmigaOS version string — visible via the 'Version' command */
 #define SERIALSHELL_VERSION "1.0"
@@ -338,9 +340,10 @@ static void handle_client(LONG client_sock)
                 BPTR outfh = IDOS->Open("NIL:", MODE_NEWFILE);
                 IDOS->SystemTags(
                     "Execute T:serialshell_runcmd.sh",
-                    SYS_Input,   infh,
-                    SYS_Output,  outfh,
-                    SYS_Asynch,  TRUE,
+                    SYS_Input,    infh,
+                    SYS_Output,   outfh,
+                    SYS_Asynch,   TRUE,
+                    NP_WindowPtr, (APTR)-1,  /* suppress DOS requesters */
                     TAG_END);
 
                 /* Poll until output file exists and stabilizes */
@@ -387,10 +390,14 @@ static void handle_client(LONG client_sock)
 
         /* Execute the command synchronously.
          * Per dos.doc: passing ZERO for SYS_Input and SYS_Output
-         * causes the function to use "NIL:" internally (V53.65+). */
+         * causes the function to use "NIL:" internally (V53.65+).
+         * NP_WindowPtr=-1 suppresses DOS requesters (e.g. "Please
+         * insert volume FOO:") so a bad path fails the IO call
+         * instead of hanging the shell waiting for user input. */
         IDOS->SystemTags(execbuf,
-            SYS_Input,      ZERO,
-            SYS_Output,     ZERO,
+            SYS_Input,    ZERO,
+            SYS_Output,   ZERO,
+            NP_WindowPtr, (APTR)-1,
             TAG_END);
 
         /* Send output back over TCP */
@@ -410,7 +417,9 @@ int main(int argc, char **argv)
     struct sockaddr_in addr;
     int optval = 1;
 
+#ifdef SERIALSHELL_AMIUPDATE
     SetAmiUpdateENVVariable("SerialShell");
+#endif
 
     IDOS->Printf("SerialShell " SERIALSHELL_VERSION
                  " (" SERIALSHELL_DATE ")"
