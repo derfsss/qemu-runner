@@ -67,7 +67,7 @@ py dev_cycle.py stop
 |-------------|-------|
 | **Windows, Linux, or macOS** | Cross-platform process management (auto-detected) |
 | **Python 3.12+** | On Windows: native install with `py` launcher (not MSYS2) |
-| **Docker** | For cross-compilation with `walkero/amigagccondocker:os4-gcc11`. On Windows, runs via WSL; on Linux/macOS, runs natively. |
+| **Docker** | For cross-compilation with `walkero/amigagccondocker:os4-gcc6` (gcc6 is used for A1222/P1022 compatibility; gcc11 works on QEMU targets but not all A1222 builds). On Windows, runs via WSL; on Linux/macOS, runs natively. |
 | **QEMU** | Custom build with AmigaOne/Pegasos2 PPC support |
 | **AmigaOS 4.1** | Installed in a QEMU disk image |
 
@@ -83,7 +83,7 @@ cd qemu-runner
 ### Step 2: Pull the Docker cross-compiler
 
 ```bash
-wsl sh -c "docker pull walkero/amigagccondocker:os4-gcc11"
+wsl sh -c "docker pull walkero/amigagccondocker:os4-gcc6"
 ```
 
 ### Step 3: Build SerialShell (the guest-side TCP listener)
@@ -94,11 +94,11 @@ SerialShell is a small AmigaOS 4 program that listens on TCP port 4321 and execu
 # Adjust the -v mount to match where you cloned the repo
 wsl sh -c "docker run --rm -v /mnt/c/path/to/qemu-runner:/src \
   -w /src/amiga \
-  walkero/amigagccondocker:os4-gcc11 make clean"
+  walkero/amigagccondocker:os4-gcc6 make clean"
 
 wsl sh -c "docker run --rm -v /mnt/c/path/to/qemu-runner:/src \
   -w /src/amiga \
-  walkero/amigagccondocker:os4-gcc11 make all"
+  walkero/amigagccondocker:os4-gcc6 make all"
 ```
 
 This produces the `amiga/serialshell` binary (PPC ELF).
@@ -325,7 +325,10 @@ SerialShell uses a simple text+binary protocol over TCP port 4321:
 4. Special commands:
    - `SERIALSHELL_UPLOAD <path> <size>\n` + `<size>` raw bytes — file upload
    - `SERIALSHELL_DOWNLOAD <path>\n` — server sends `SERIALSHELL_FILE <size>\n` + raw bytes + done marker
+   - `SERIALSHELL_RUNCONSOLE <command>\n` — runs the command in its own Execute'd console with output captured to a file; required for programs whose child threads block synchronous `SystemTags` (e.g. `clib4 -athread=native`, GDB)
    - `SERIALSHELL_QUIT\n` — clean disconnect
+
+The server applies per-socket `SO_RCVTIMEO`/`SO_SNDTIMEO` (30 s) to each accepted connection, so a stuck client can no longer wedge the listener. `SIGBREAKF_CTRL_C` to the listener task breaks the accept loop cleanly.
 
 ## Test Output Convention
 

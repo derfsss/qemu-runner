@@ -1,6 +1,6 @@
 name: SerialShell
 description: TCP command listener for remote AmigaOS development
-version: 1.0
+version: 1.2
 author: Richard Gibbs
 submitter: Richard Gibbs
 url: https://github.com/derfsss/qemu-runner
@@ -14,7 +14,7 @@ hend:
 SerialShell
 ===========
 TCP Command Listener for Remote AmigaOS 4 Development
-Version 1.0 - 7 April 2026
+Version 1.2 - 23 April 2026
 
 Author:  Richard Gibbs
 Source:  https://github.com/derfsss/qemu-runner
@@ -276,6 +276,22 @@ Or with any ppc-amigaos cross-compiler:
 
 CHANGELOG
 ---------
+
+Version 1.2 (23 April 2026)
+  - Hardening: per-socket SO_RCVTIMEO/SO_SNDTIMEO (30 s) + SO_KEEPALIVE
+    on accepted client sockets, so a silent or wedged client can no
+    longer block the single-threaded listener indefinitely
+  - Accept loop now uses WaitSelect() with SIGBREAKF_CTRL_C in the
+    signal mask — CTRL-C to the server task (Break <cli> C) breaks the
+    loop cleanly and closes the listen socket on the way out
+  - Build date stamped into the $VER cookie is now auto-populated at
+    compile time (make target passes -DSERIALSHELL_DATE=DD.MM.YYYY);
+    direct ppc-amigaos-gcc builds fall back to __DATE__ format
+  - DOS requesters suppressed on the synchronous command path
+    (NP_WindowPtr=-1), so a bad path now fails the IO call instead of
+    hanging the shell waiting for user input
+  - AmiUpdate integration made optional (WITH_AMIUPDATE=1 build flag);
+    default build has no AmiUpdate dependency
 
 Version 1.0 (7 April 2026)
   - Initial release

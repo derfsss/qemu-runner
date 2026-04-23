@@ -7,7 +7,9 @@
  * transfer (upload/download) over the same connection.
  *
  * Build:
+ *   make serialshell         (preferred — stamps DD.MM.YYYY build date into $VER)
  *   ppc-amigaos-gcc -O2 -o serialshell serialshell.c -lauto
+ *                            (fallback — build date falls back to __DATE__ format)
  *
  * Install:
  *   Copy to SYS:C/ and add to S:User-Startup:
@@ -17,12 +19,20 @@
  *   - Host connects to TCP port 4321
  *   - Server sends "SERIALSHELL_READY\n"
  *   - Host sends a line terminated by \n:
- *     - Regular command: executed, output + "___SERIALSHELL_DONE___\n"
+ *     - Regular command: executed synchronously, output + "___SERIALSHELL_DONE___\n"
  *     - "SERIALSHELL_UPLOAD <path> <size>\n": receive <size> bytes, write to <path>
  *       Server replies "SERIALSHELL_UPLOAD_OK\n" or "SERIALSHELL_UPLOAD_FAIL <msg>\n"
  *     - "SERIALSHELL_DOWNLOAD <path>\n": server sends "SERIALSHELL_FILE <size>\n"
  *       followed by <size> raw bytes, then "___SERIALSHELL_DONE___\n"
+ *     - "SERIALSHELL_RUNCONSOLE <command>\n": runs the command in its own console
+ *       window via Execute + SYS_Asynch, captured to a file; server sends the
+ *       file contents followed by "___SERIALSHELL_DONE___\n". Required for
+ *       programs whose child threads block synchronous SystemTags (e.g. clib4
+ *       -athread=native, GDB).
  *     - "SERIALSHELL_QUIT\n": clean disconnect
+ *
+ * Listener shutdown: SIGBREAKF_CTRL_C to the server task (e.g. `Break <cli> C`)
+ * breaks the accept loop cleanly and closes the listen socket.
  */
 
 #include <proto/exec.h>
@@ -39,9 +49,16 @@
 #include "amiupdate.h"
 #endif
 
-/* AmigaOS version string — visible via the 'Version' command */
-#define SERIALSHELL_VERSION "1.0"
-#define SERIALSHELL_DATE    "07.04.2026"
+/* AmigaOS version string — visible via the 'Version' command.
+ * SERIALSHELL_DATE is supplied by the Makefile (`date +%d.%m.%Y`) so the
+ * $VER cookie always carries the actual build date in the DD.MM.YYYY format
+ * the Amiga `Version` command expects. __DATE__ is kept as a fallback for
+ * ad-hoc compiles without the Makefile — format will differ but builds
+ * still succeed. */
+#define SERIALSHELL_VERSION "1.2"
+#ifndef SERIALSHELL_DATE
+#define SERIALSHELL_DATE __DATE__
+#endif
 static const char __attribute__((used)) verstag[] =
     "\0$VER: SerialShell " SERIALSHELL_VERSION " (" SERIALSHELL_DATE ")";
 
@@ -281,6 +298,21 @@ static void handle_client(LONG client_sock)
     char cmdbuf[CMD_BUFSIZE];
     char execbuf[CMD_BUFSIZE + 256];
 
+    /* Per-socket recv/send timeouts. Without these a silent client can
+     * wedge the single-threaded listener indefinitely. On timeout the
+     * underlying recv/send returns -1, which recv_all/recv_line/send_all
+     * already treat as a fatal per-client error — the loop breaks,
+     * socket is closed, and the listener resumes accepting. */
+    struct timeval rcv_to = { .tv_sec = 30, .tv_usec = 0 };
+    struct timeval snd_to = { .tv_sec = 30, .tv_usec = 0 };
+    int keepalive = 1;
+    ISocket->setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO,
+                        &rcv_to, sizeof(rcv_to));
+    ISocket->setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO,
+                        &snd_to, sizeof(snd_to));
+    ISocket->setsockopt(client_sock, SOL_SOCKET, SO_KEEPALIVE,
+                        &keepalive, sizeof(keepalive));
+
     /* Allocate transfer buffer on heap to avoid stack overflow */
     char *xferbuf = malloc(XFER_BUFSIZE);
     if (!xferbuf) {
@@ -456,10 +488,34 @@ int main(int argc, char **argv)
         return 20;
     }
 
-    IDOS->Printf("SerialShell: Listening on port %ld\n", (long)LISTEN_PORT);
+    IDOS->Printf("SerialShell: Listening on port %ld (CTRL-C to stop)\n",
+                 (long)LISTEN_PORT);
 
-    /* Accept loop — handle one client at a time, then wait for next */
+    /* Accept loop — handle one client at a time, then wait for next.
+     * WaitSelect() lets us block on both the listen socket and
+     * SIGBREAKF_CTRL_C, giving a clean shutdown path that the plain
+     * accept() call (which ignores task signals) does not. */
     for (;;) {
+        fd_set rfds;
+        ULONG sigs = SIGBREAKF_CTRL_C;
+
+        FD_ZERO(&rfds);
+        FD_SET(listen_sock, &rfds);
+
+        LONG sel = ISocket->WaitSelect(listen_sock + 1, &rfds, NULL, NULL,
+                                       NULL, &sigs);
+        if (sel < 0) {
+            IDOS->Printf("SerialShell: WaitSelect() failed\n");
+            IDOS->Delay(50);
+            continue;
+        }
+        if (sigs & SIGBREAKF_CTRL_C) {
+            IDOS->Printf("SerialShell: CTRL-C received, shutting down\n");
+            break;
+        }
+        if (!FD_ISSET(listen_sock, &rfds))
+            continue;
+
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
 
