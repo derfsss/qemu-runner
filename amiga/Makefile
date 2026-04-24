@@ -8,10 +8,15 @@ SERIALSHELL_CFLAGS = -DSERIALSHELL_DATE=\"$(BUILD_DATE)\"
 
 # AmiUpdate integration — only pulled in when WITH_AMIUPDATE=1.
 # The `serialshell-full` target sets this via recursive make.
+# Pass AMIUPDATE_DIR=/absolute/path from the command line when the
+# integration lives outside the usual relative layout.
 AMIUPDATE_DIR ?= ../../../../AmiUpdateIntegration
 WITH_AMIUPDATE ?= 0
 
 ifeq ($(WITH_AMIUPDATE),1)
+# amiupdate.mk writes its object file into $(BUILD_DIR); default to
+# this directory so a plain `make dist` works from the amiga/ folder.
+BUILD_DIR ?= .
 include $(AMIUPDATE_DIR)/amiupdate.mk
 SERIALSHELL_EXTRA_OBJS   = $(AMIUPDATE_OBJ)
 SERIALSHELL_EXTRA_CFLAGS = $(AMIUPDATE_CFLAGS) -DSERIALSHELL_AMIUPDATE

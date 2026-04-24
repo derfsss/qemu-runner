@@ -67,7 +67,7 @@ py dev_cycle.py stop
 |-------------|-------|
 | **Windows, Linux, or macOS** | Cross-platform process management (auto-detected) |
 | **Python 3.12+** | On Windows: native install with `py` launcher (not MSYS2) |
-| **Docker** | For cross-compilation with `walkero/amigagccondocker:os4-gcc6` (gcc6 is used for A1222/P1022 compatibility; gcc11 works on QEMU targets but not all A1222 builds). On Windows, runs via WSL; on Linux/macOS, runs natively. |
+| **Docker** | For cross-compilation with `walkero/amigagccondocker:os4-gcc11` (default). If a binary misbehaves on A1222/P1022 hardware, fall back to `os4-gcc6` for that target. On Windows, runs via WSL; on Linux/macOS, runs natively. |
 | **QEMU** | Custom build with AmigaOne/Pegasos2 PPC support |
 | **AmigaOS 4.1** | Installed in a QEMU disk image |
 
@@ -83,7 +83,7 @@ cd qemu-runner
 ### Step 2: Pull the Docker cross-compiler
 
 ```bash
-wsl sh -c "docker pull walkero/amigagccondocker:os4-gcc6"
+wsl sh -c "docker pull walkero/amigagccondocker:os4-gcc11"
 ```
 
 ### Step 3: Build SerialShell (the guest-side TCP listener)
@@ -94,11 +94,11 @@ SerialShell is a small AmigaOS 4 program that listens on TCP port 4321 and execu
 # Adjust the -v mount to match where you cloned the repo
 wsl sh -c "docker run --rm -v /mnt/c/path/to/qemu-runner:/src \
   -w /src/amiga \
-  walkero/amigagccondocker:os4-gcc6 make clean"
+  walkero/amigagccondocker:os4-gcc11 make clean"
 
 wsl sh -c "docker run --rm -v /mnt/c/path/to/qemu-runner:/src \
   -w /src/amiga \
-  walkero/amigagccondocker:os4-gcc6 make all"
+  walkero/amigagccondocker:os4-gcc11 make all"
 ```
 
 This produces the `amiga/serialshell` binary (PPC ELF).
@@ -319,7 +319,7 @@ qmp.close()
 
 SerialShell uses a simple text+binary protocol over TCP port 4321:
 
-1. Server sends `SERIALSHELL_READY\n` on connect
+1. Server sends `SERIALSHELL_READY\n` on connect (or `SERIALSHELL_BUSY ...\n` at capacity)
 2. Client sends a command line terminated by `\n`
 3. Server executes it, sends output, then `___SERIALSHELL_DONE___\n`
 4. Special commands:
@@ -328,7 +328,7 @@ SerialShell uses a simple text+binary protocol over TCP port 4321:
    - `SERIALSHELL_RUNCONSOLE <command>\n` — runs the command in its own Execute'd console with output captured to a file; required for programs whose child threads block synchronous `SystemTags` (e.g. `clib4 -athread=native`, GDB)
    - `SERIALSHELL_QUIT\n` — clean disconnect
 
-The server applies per-socket `SO_RCVTIMEO`/`SO_SNDTIMEO` (30 s) to each accepted connection, so a stuck client can no longer wedge the listener. `SIGBREAKF_CTRL_C` to the listener task breaks the accept loop cleanly.
+**Concurrency (v1.3+):** each accepted connection is served by its own handler process — up to 8 concurrent clients; beyond the cap new connections receive `SERIALSHELL_BUSY` and are closed. A hung command wedges only its own handler, never the listener. Per-socket `SO_RCVTIMEO` (10 s idle-between-lines) / `SO_SNDTIMEO` (30 s) / `SO_KEEPALIVE` keep zombie clients from piling up. Output of regular commands is capped at 64 KiB with a truncation marker (binary upload/download transfers are not capped). `SIGBREAKF_CTRL_C` to the listener task breaks the accept loop cleanly.
 
 ## Test Output Convention
 
