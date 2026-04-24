@@ -20,7 +20,7 @@ endif
 # Distribution
 DIST_DIR = dist
 DIST_NAME = SerialShell
-VERSION = 1.2
+VERSION = 1.3
 
 .PHONY: all serialshell-full clean dist dist-lha
 

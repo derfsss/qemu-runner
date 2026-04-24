@@ -1,6 +1,6 @@
 name: SerialShell
 description: TCP command listener for remote AmigaOS development
-version: 1.2
+version: 1.3
 author: Richard Gibbs
 submitter: Richard Gibbs
 url: https://github.com/derfsss/qemu-runner
@@ -14,7 +14,7 @@ hend:
 SerialShell
 ===========
 TCP Command Listener for Remote AmigaOS 4 Development
-Version 1.2 - 23 April 2026
+Version 1.3 - 24 April 2026
 
 Author:  Richard Gibbs
 Source:  https://github.com/derfsss/qemu-runner
@@ -35,6 +35,9 @@ Key features:
   - Run clib4/-athread=native programs with output capture
   - Minimal footprint (~70 KB), no external dependencies
   - Auto-starts at boot via S:User-Startup
+  - Spawns a dedicated handler process per connection — up to 8 clients
+    can be served concurrently and one stuck command no longer wedges
+    the listener
 
 
 REQUIREMENTS
@@ -212,19 +215,25 @@ Python example for WSL2:
 PROTOCOL REFERENCE
 ------------------
 
-SerialShell listens on TCP port 4321 and handles one client at a
-time.  The protocol is text-based with binary extensions.
+SerialShell listens on TCP port 4321.  Each accepted connection is
+handed to its own handler process so up to 8 clients can be serviced
+concurrently; beyond that cap new connections receive a one-line
+SERIALSHELL_BUSY reply and are closed.  The protocol is text-based
+with binary extensions.
 
 Connection:
   On connect, server sends: SERIALSHELL_READY\n
+    (or, at capacity: SERIALSHELL_BUSY <reason>\n)
   Client sends commands as lines terminated by \n.
   Server sends response followed by: ___SERIALSHELL_DONE___\n
 
 Commands:
 
   <command>\n
-    Execute an AmigaOS shell command.  Output is captured to a temp
-    file and sent back over TCP, followed by the DONE marker.
+    Execute an AmigaOS shell command.  Output is captured to a per-
+    command temp file (T:serialshell_out_<task>_<seq>.txt) and sent
+    back over TCP, followed by the DONE marker.  Output is capped at
+    64 KiB per command (binary uploads/downloads are not capped).
     Example: Echo Hello\n
 
   SERIALSHELL_RUNCONSOLE <command>\n
@@ -265,9 +274,9 @@ Source code: https://github.com/derfsss/qemu-runner
 Build using Docker cross-compiler:
 
   docker run --rm \
-    -v $(pwd)/amiga:/work \
-    clib4-dev:os4-gcc11 \
-    sh -c 'cd /work && make serialshell'
+    -v $(pwd)/amiga:/work -w /work \
+    walkero/amigagccondocker:os4-gcc11 \
+    make serialshell
 
 Or with any ppc-amigaos cross-compiler:
 
@@ -276,6 +285,33 @@ Or with any ppc-amigaos cross-compiler:
 
 CHANGELOG
 ---------
+
+Version 1.3 (24 April 2026)
+  - Spawn-per-connection handler model: each accepted connection is
+    released from the parent's bsdsocket fd table with
+    ReleaseSocket(UNIQUE_ID), handed to a freshly spawned handler
+    process (CreateNewProcTags) that ObtainSockets it into its own
+    task, and the listener resumes accepting immediately. Up to 8
+    clients can now be served concurrently; beyond the cap new
+    connections get SERIALSHELL_BUSY and are closed. A single wedged
+    command now only hangs its own handler, not the listener.
+  - Per-command output file naming: T:serialshell_out_<task>_<seq>.txt
+    so concurrent handlers cannot collide and an orphan redirect can't
+    lock out the next command.
+  - Output cap (64 KiB) applied to default-command and RUNCONSOLE
+    captures so a stray "List ALL SYS:" style command can't saturate
+    the NIC or exhaust T:.
+  - Recv timeout on accepted sockets reduced from 30 s (v1.2) to
+    10 s — this is the *idle-between-lines* limit, not the total
+    command time, so shorter is safer.
+  - Listen backlog raised to 32 so burst-connect storms queue rather
+    than getting ECONNREFUSED'd before the parent can accept.
+
+  Known limitation: the default-command path still uses synchronous
+  SystemTags. A timer.device-based wall-clock watchdog on exec was
+  prototyped but did not behave reliably on the A1222 for commands
+  that spawn shell children — deferred to a future release. Until
+  then, the spawn-per-connection isolation is the safety net.
 
 Version 1.2 (23 April 2026)
   - Hardening: per-socket SO_RCVTIMEO/SO_SNDTIMEO (30 s) + SO_KEEPALIVE
