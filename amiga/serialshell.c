@@ -373,15 +373,21 @@ static void handle_download(struct SocketIFace *si, LONG sock,
 /* ------------------------------------------------------------------ */
 /* Runs `cmd` redirected to out_path and waits for it synchronously.
  *
- * Note on step 4: we prototyped an async SYS_Asynch + timer.device +
- * NP_NotifyOnDeathSignalBit watchdog, but on the A1222 the death
- * signal was not firing reliably for commands that spawn shell
- * children (copy, delete, etc.) — the handler ended up waiting the
- * full timeout even for fast commands. Until that's diagnosed we run
- * synchronously and rely on step 3 (spawn-per-connection) for isolation:
- * a hung command now only wedges its own handler, not the listener.
+ * Historical note: the hardening plan's step 4 proposed an async
+ * SYS_Asynch + timer.device + NP_NotifyOnDeathSignalBit watchdog so
+ * runaway commands could be bounded to a wall-clock timeout. A working
+ * prototype existed briefly in the 2026-04-24 development branch, but
+ * NP_NotifyOnDeathSignalBit did not fire reliably on the A1222 for
+ * shell commands that spawn children (copy, delete behaved differently
+ * than echo, list) — the handler waited the full timer interval even
+ * for fast commands. The watchdog was ABANDONED because spawn-per-
+ * connection (step 3) already prevents a hung command from affecting
+ * the listener: a runaway only ever wedges its own handler, which
+ * cleans up when the client disconnects. The watchdog would have been
+ * a nicety (prompt timeout signalling to the client) rather than a
+ * correctness fix, and not worth the AOS4-specific debugging burden.
  *
- * Returns 0 on clean exit (always — sync path has no timeout path yet).
+ * Returns 0 — retained as int for caller API stability.
  */
 static int exec_with_watchdog(const char *cmd, const char *out_path)
 {

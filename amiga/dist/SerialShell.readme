@@ -307,11 +307,13 @@ Version 1.3 (24 April 2026)
   - Listen backlog raised to 32 so burst-connect storms queue rather
     than getting ECONNREFUSED'd before the parent can accept.
 
-  Known limitation: the default-command path still uses synchronous
-  SystemTags. A timer.device-based wall-clock watchdog on exec was
-  prototyped but did not behave reliably on the A1222 for commands
-  that spawn shell children — deferred to a future release. Until
-  then, the spawn-per-connection isolation is the safety net.
+  Design note: the default-command path uses synchronous SystemTags.
+  A timer.device-based wall-clock watchdog on exec was prototyped but
+  did not behave reliably on the A1222 for shell commands that spawn
+  children; the work was abandoned because the spawn-per-connection
+  isolation above already prevents a hung command from affecting the
+  listener. A runaway only ever hangs its own handler, which cleans up
+  when the client disconnects.
 
 Version 1.2 (23 April 2026)
   - Hardening: per-socket SO_RCVTIMEO/SO_SNDTIMEO (30 s) + SO_KEEPALIVE
