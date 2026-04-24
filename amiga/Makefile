@@ -2,6 +2,10 @@ CC = ppc-amigaos-gcc
 CFLAGS = -O2 -Wall
 LDFLAGS = -lauto
 
+# Build date stamped into the $VER cookie (DD.MM.YYYY, Amiga Version format).
+BUILD_DATE := $(shell date +%d.%m.%Y)
+SERIALSHELL_CFLAGS = -DSERIALSHELL_DATE=\"$(BUILD_DATE)\"
+
 # AmiUpdate integration — only pulled in when WITH_AMIUPDATE=1.
 # The `serialshell-full` target sets this via recursive make.
 AMIUPDATE_DIR ?= ../../../../AmiUpdateIntegration
@@ -16,7 +20,7 @@ endif
 # Distribution
 DIST_DIR = dist
 DIST_NAME = SerialShell
-VERSION = 1.0
+VERSION = 1.3
 
 .PHONY: all serialshell-full clean dist dist-lha
 
@@ -24,7 +28,7 @@ VERSION = 1.0
 all: serialshell hello
 
 serialshell: serialshell.c $(SERIALSHELL_EXTRA_OBJS)
-	$(CC) $(CFLAGS) $(SERIALSHELL_EXTRA_CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(SERIALSHELL_CFLAGS) $(SERIALSHELL_EXTRA_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Build serialshell with AmiUpdate integration (requires AmiUpdateIntegration
 # checkout at $(AMIUPDATE_DIR)). Re-invokes make with WITH_AMIUPDATE=1 so the
