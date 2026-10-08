@@ -291,6 +291,17 @@ py qmp_client.py quit
 
 ### Python API
 
+The clients can be installed as a package straight from GitHub, with no clone
+needed. Pin a commit so upgrades are deliberate:
+
+```bash
+pip install "qemu-runner @ git+https://github.com/derfsss/qemu-runner@<commit>"
+```
+
+In a `pyproject.toml` dependency list:
+`"qemu-runner @ git+https://github.com/derfsss/qemu-runner@<commit>"`.
+The modules install at top level, so the imports below work unchanged.
+
 ```python
 from serial_client import SerialClient
 from qmp_client import QMPClient

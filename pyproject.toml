@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qemu-runner"
+version = "1.3.1"
+description = "QEMU lifecycle, QMP and SerialShell clients for AmigaOS 4 development"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/derfsss/qemu-runner"
+
+[project.scripts]
+qemu-dev-cycle = "dev_cycle:main"
+qemu-manager = "qemu_manager:main"
+qmp-client = "qmp_client:main"
+serial-client = "serial_client:main"
+qemu-test-runner = "test_runner:main"
+
+[tool.setuptools]
+# Flat layout: the modules import each other by top-level name
+# (`from serial_client import SerialClient`), so they ship as-is.
+py-modules = ["dev_cycle", "qemu_manager", "qmp_client", "serial_client", "test_runner"]

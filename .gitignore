@@ -7,3 +7,7 @@ __pycache__/
 # Built AmigaOS binaries (build from source)
 amiga/serialshell
 amiga/hello
+
+# Packaging
+build/
+*.egg-info/
