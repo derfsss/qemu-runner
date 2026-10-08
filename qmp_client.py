@@ -35,12 +35,15 @@ class QMPClient:
         self.host = host
         self.port = port
         self.sock: socket.socket | None = None
+        self._buf = ""
 
     def connect(self, timeout: float = 5.0):
         """Connect to QMP and perform capability negotiation."""
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(timeout)
-        self.sock.connect((self.host, self.port))
+        self.sock = socket.create_connection((self.host, self.port), timeout=timeout)
+        # Replies can take far longer than the connect (HMP savevm/loadvm),
+        # so reads get a more generous timeout than the connect itself.
+        self.sock.settimeout(max(timeout, 30.0))
+        self._buf = ""
 
         # QMP sends a greeting on connect
         greeting = self._recv_json()
@@ -58,23 +61,26 @@ class QMPClient:
             except Exception:
                 pass
             self.sock = None
+            self._buf = ""
 
     def _send_json(self, obj: dict):
         data = json.dumps(obj) + "\n"
         self.sock.sendall(data.encode("utf-8"))
 
     def _recv_json(self) -> dict:
-        """Read one JSON object from the socket."""
-        buf = ""
-        while True:
+        """Read one JSON object from the socket.
+
+        QMP sends one JSON object per line, but a single recv() can hold
+        several (an async event plus the reply, say). Anything after the
+        first line stays buffered for the next call instead of being lost.
+        """
+        while "\n" not in self._buf:
             data = self.sock.recv(RECV_CHUNK)
             if not data:
                 raise ConnectionError("QMP connection closed")
-            buf += data.decode("utf-8")
-            # QMP sends one JSON object per line
-            if "\n" in buf:
-                line = buf[:buf.index("\n")]
-                return json.loads(line)
+            self._buf += data.decode("utf-8")
+        line, self._buf = self._buf.split("\n", 1)
+        return json.loads(line)
 
     def _execute(self, command: str, **arguments) -> dict:
         """Send a QMP command and return the response."""
