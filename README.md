@@ -291,6 +291,17 @@ py qmp_client.py quit
 
 ### Python API
 
+The clients can be installed as a package straight from GitHub, with no clone
+needed. Pin a commit so upgrades are deliberate:
+
+```bash
+pip install "qemu-runner @ git+https://github.com/derfsss/qemu-runner@<commit>"
+```
+
+In a `pyproject.toml` dependency list:
+`"qemu-runner @ git+https://github.com/derfsss/qemu-runner@<commit>"`.
+The modules install at top level, so the imports below work unchanged.
+
 ```python
 from serial_client import SerialClient
 from qmp_client import QMPClient
@@ -368,3 +379,7 @@ Results: N/M passed
 | **Python can't find QEMU** | Use native Windows Python (`py` launcher), not MSYS2 Python. MSYS2 can't resolve Windows paths in subprocess. |
 | **`Permission denied` on QEMU temp files** | Ensure `qemu_manager.py` sets `cwd` to the QEMU install directory. |
 | **QEMU shuts down unexpectedly** | The idle timeout (default 5 min) may have triggered. Use `--idle-timeout 0` to disable, or increase the value. Check `qemu_manager.log` for "Idle for N seconds". |
+
+## License
+
+MIT. See [LICENSE](LICENSE).
