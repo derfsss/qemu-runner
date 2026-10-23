@@ -379,3 +379,7 @@ Results: N/M passed
 | **Python can't find QEMU** | Use native Windows Python (`py` launcher), not MSYS2 Python. MSYS2 can't resolve Windows paths in subprocess. |
 | **`Permission denied` on QEMU temp files** | Ensure `qemu_manager.py` sets `cwd` to the QEMU install directory. |
 | **QEMU shuts down unexpectedly** | The idle timeout (default 5 min) may have triggered. Use `--idle-timeout 0` to disable, or increase the value. Check `qemu_manager.log` for "Idle for N seconds". |
+
+## License
+
+MIT. See [LICENSE](LICENSE).
